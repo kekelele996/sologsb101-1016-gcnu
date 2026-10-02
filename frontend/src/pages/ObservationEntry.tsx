@@ -25,7 +25,7 @@ const BTN_GHOST =
 const BTN_DANGER = 'rounded-md bg-rose-600 px-3.5 py-1.5 text-sm font-medium text-white transition hover:bg-rose-700';
 
 function emptyDraft(pondId: string): ObservationDraft {
-  return { pondId, date: today(), densityGcm3: 1.05, tempC: 28, levelCm: 40, windLevel: 2, evapMm: 0 };
+  return { pondId, date: today(), densityGcm3: 1.05, tempC: 28, levelCm: 40, windLevel: 2, evapMm: 0, source: 'manual' };
 }
 
 export default function ObservationEntry() {
@@ -103,6 +103,7 @@ export default function ObservationEntry() {
       levelCm: row.levelCm,
       windLevel: row.windLevel,
       evapMm: row.evapMm,
+      source: row.source,
     });
     setDialogOpen(true);
   };
@@ -248,7 +249,16 @@ export default function ObservationEntry() {
                 <For each={filtered()}>
                   {(row) => (
                     <tr class="border-b border-slate-100 hover:bg-slate-50/60">
-                      <td class="px-3 py-2.5">{pondLabel(row.pondId)}</td>
+                      <td class="px-3 py-2.5">
+                        <div class="flex items-center gap-2">
+                          <span>{pondLabel(row.pondId)}</span>
+                          <Show when={row.source === 'inspection'}>
+                            <span class="rounded bg-salt-200 px-1.5 py-0.5 text-[10px] font-medium text-salt-500">
+                              现场
+                            </span>
+                          </Show>
+                        </div>
+                      </td>
                       <td class="px-3 py-2.5">{row.date}</td>
                       <td class="px-3 py-2.5 text-right tabular-nums">{row.densityGcm3}</td>
                       <td class="px-3 py-2.5 text-right tabular-nums">{row.tempC}</td>

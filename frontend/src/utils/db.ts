@@ -11,15 +11,16 @@ import type { Gate } from '../types/gate';
 import type { Observation } from '../types/observation';
 import type { Assay } from '../types/assay';
 import type { Schedule, ScheduleState } from '../types/schedule';
-import { estimateEvapMm } from './brine';
-import { nowIso } from './id';
+import type { WritebackReport } from '../types/writeback';
+import { estimateEvapMm, stateFromOpening } from './brine';
+import { nowIso, uuid } from './id';
 import { seedDatabase } from './seed';
 
 /** 数据库名 */
 export const DB_NAME = 'gbbrinepond';
 
 /** 当前数据结构版本号（每次调整字段结构必须 +1 并补迁移） */
-export const DB_SCHEMA_VERSION = 2;
+export const DB_SCHEMA_VERSION = 3;
 
 /** 数据行结构修订号 */
 export const ROW_REVISION = 2;
@@ -44,7 +45,7 @@ class BrinePondDatabase extends Dexie {
     });
 
     // ---------- v2：新增 evapMm 字段，并为旧记录补齐默认值 ----------
-    this.version(DB_SCHEMA_VERSION)
+    this.version(2)
       .stores({
         ponds: 'id, code, seriesName, stage, status, createdAt, updatedAt',
         gates: 'id, fromPondId, toPondId, state, openingPct',
@@ -87,6 +88,25 @@ class BrinePondDatabase extends Dexie {
           if (typeof row.orderIndex !== 'number') {
             const date = typeof row.planDate === 'string' ? row.planDate : '2026-01-01';
             row.orderIndex = Number(date.replace(/-/g, '')) || 1;
+          }
+        });
+      });
+
+    // ---------- v3：观测记录新增 source 字段，区分手工录入与现场回传 ----------
+    this.version(3)
+      .stores({
+        ponds: 'id, code, seriesName, stage, status, createdAt, updatedAt',
+        gates: 'id, fromPondId, toPondId, state, openingPct',
+        observations: 'id, pondId, date, [pondId+date], densityGcm3, evapMm',
+        assays: 'id, pondId, date, [pondId+date], verdict, verdictManual',
+        schedules: 'id, pondId, planDate, state, orderIndex',
+      })
+      .upgrade(async (tx) => {
+        // 迁移：卤水观测补齐 source 字段——旧记录一律视为调度员手工录入，
+        // 现场回传的记录在并入时写入 source = 'inspection'。
+        await tx.table('observations').toCollection().modify((row: Record<string, unknown>) => {
+          if (row.source !== 'manual' && row.source !== 'inspection') {
+            row.source = 'manual';
           }
         });
       });
@@ -272,6 +292,66 @@ export async function advanceScheduleState(scheduleId: string, next: ScheduleSta
     return;
   }
   await db.schedules.update(scheduleId, { state: next, updatedAt: nowIso() });
+}
+
+/* ------------------------------ 现场回传并入 ------------------------------ */
+
+export interface ApplyWritebackResult {
+  observationsMerged: number;
+  gatesMatched: number;
+}
+
+/**
+ * 把对账报告并入本地库（同一事务）：
+ * - 认现场：水位、密度（及温度、风力）写入卤水日观测，同池同日覆盖；
+ * - 闸门实测开度按「上游池号→下游池号」认到已有串级，只改开度与状态，不新建闸门；
+ * - 走水排程与目标密度一律不触碰（两边各管各的字段）。
+ */
+export async function applyWriteback(report: WritebackReport): Promise<ApplyWritebackResult> {
+  const stamp = nowIso();
+  let observationsMerged = 0;
+  let gatesMatched = 0;
+
+  await db.transaction('rw', db.ponds, db.gates, db.observations, async () => {
+    for (const entry of report.entries) {
+      if (entry.status !== 'merged') continue;
+      const pond = await db.ponds.where('code').equals(entry.pondCode).first();
+      if (pond === undefined) continue;
+      const existing = await db.observations.where('[pondId+date]').equals([pond.id, entry.date]).first();
+      const tempC = entry.tempC ?? existing?.tempC ?? 28;
+      const windLevel = entry.windLevel ?? existing?.windLevel ?? 2;
+      const density = entry.densityGcm3;
+      const levelCm = entry.levelCm;
+      const next: Observation = {
+        id: existing?.id ?? uuid('obs'),
+        pondId: pond.id,
+        date: entry.date,
+        densityGcm3: density,
+        tempC,
+        levelCm,
+        windLevel,
+        evapMm: estimateEvapMm(density, tempC, levelCm, windLevel),
+        source: 'inspection',
+        createdAt: existing?.createdAt ?? stamp,
+        updatedAt: stamp,
+        revision: ROW_REVISION,
+      };
+      await db.observations.put(next);
+      observationsMerged += 1;
+
+      for (const gate of entry.gates) {
+        if (gate.status !== 'matched' || gate.gateId === undefined) continue;
+        await db.gates.update(gate.gateId, {
+          openingPct: gate.openingPct,
+          state: stateFromOpening(gate.openingPct),
+          updatedAt: stamp,
+        });
+        gatesMatched += 1;
+      }
+    }
+  });
+
+  return { observationsMerged, gatesMatched };
 }
 
 /* ---------------------------- 整库快照 ---------------------------- */

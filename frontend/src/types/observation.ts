@@ -2,6 +2,9 @@
  * 卤水日观测（Observation）
  * 同池同日仅保留一条；evapMm 由密度、温度、水位与风力经验公式估算。
  */
+/** 数据来源：manual=调度员手工录入；inspection=巡检终端现场回传（认现场） */
+export type ObservationSource = 'manual' | 'inspection';
+
 export interface Observation {
   id: string
   /** 所属蒸发池 */
@@ -18,6 +21,8 @@ export interface Observation {
   windLevel: number
   /** 估算蒸发量（mm/d）——v2 新增字段，旧记录在升级迁移中自动补齐 */
   evapMm: number
+  /** 数据来源——v3 新增字段，旧记录在升级迁移中补齐为 manual */
+  source: ObservationSource
   createdAt: string
   updatedAt: string
   revision: number
@@ -32,4 +37,5 @@ export interface ObservationDraft {
   levelCm: number
   windLevel: number
   evapMm: number
+  source: ObservationSource
 }

@@ -45,6 +45,7 @@ function observation(
     levelCm,
     windLevel,
     evapMm: estimateEvapMm(densityGcm3, tempC, levelCm, windLevel),
+    source: 'manual',
   });
 }
 

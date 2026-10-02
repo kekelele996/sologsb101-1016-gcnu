@@ -69,13 +69,13 @@ sologsb101-1016/
         ├── index.tsx           # 入口：render + 初始化数据库
         ├── App.tsx             # 外壳：品牌栏 + 侧边导航 + 内容区（Router root 布局）
         ├── styles/main.css     # @tailwind 指令 + 全局样式
-        ├── types/              # pond.ts gate.ts observation.ts assay.ts schedule.ts
-        ├── stores/             # pondStore.ts observationStore.ts scheduleStore.ts
+        ├── types/              # pond.ts gate.ts observation.ts assay.ts schedule.ts writeback.ts
+        ├── stores/             # pondStore.ts observationStore.ts scheduleStore.ts writebackStore.ts
         ├── components/common/  # StageTag.tsx FilterBar.tsx StatBadge.tsx EmptyPanel.tsx AppDialog.tsx
         ├── hooks/              # useEvaporation.ts useIdbTable.ts
-        ├── pages/              # 6 个模块页面
+        ├── pages/              # 7 个模块页面
         ├── router/index.tsx    # AppRouter + ROUTES 常量 + NAV_ITEMS
-        └── utils/              # brine.ts db.ts export.ts seed.ts id.ts
+        └── utils/              # brine.ts db.ts export.ts seed.ts id.ts writeback.ts
 ```
 
 ---
@@ -89,6 +89,7 @@ sologsb101-1016/
 | `/observations` | `pages/ObservationEntry.tsx` | 卤水日观测录入台：单条 + 批量粘贴录入，同池同日覆盖写入，蒸发量按经验公式自动估算 |
 | `/assays` | `pages/AssayEntry.tsx` | 离子组分分析：Li⁺/K⁺/Mg²⁺/Na⁺ 录入、自动达标判定（可人工覆盖）、SVG 组分曲线 |
 | `/schedules` | `pages/ScheduleBoard.tsx` | 走水与出卤编排：按日期排序、HTML5 拖拽调整先后顺序、逐条推进状态、出卤回写池阶段 |
+| `/writeback` | `pages/WritebackReconcile.tsx` | 现场回传对账：巡检终端记录（JSON / 文本）解析、同池去重、坏条目跳过写明原因、闸门按上下游池对认到已有串级（对不上先搁着不新建）、确认并入 |
 | `/export` | `pages/ExportView.tsx` | 晒程进度汇总、JSON 结构版本查看与导入导出、CSV 汇总、重置演示数据 |
 
 `/` 重定向到 `/ponds`，未匹配路径统一回落到 `/ponds`。
@@ -101,18 +102,20 @@ sologsb101-1016/
 
 * **持久化方案**：IndexedDB，通过 Dexie 封装（`src/utils/db.ts`）。
 * **数据库名**：`gbbrinepond`。
-* **数据结构版本**：`DB_SCHEMA_VERSION = 2`
+* **数据结构版本**：`DB_SCHEMA_VERSION = 3`
   * `db.version(1)`：建立全部表与 **`pondId+date` 复合索引**（`observations`、`assays`）；
   * `db.version(2)`：**新增 `evapMm` 字段**并写入真实升级迁移逻辑 ——
     `.upgrade()` 里对 `observations` 逐行检查，缺失或非法时按密度/温度/水位/风力用经验公式回填默认值；
     同时补齐 `revision` / `createdAt` / `updatedAt`、`assays.verdictManual`、`schedules.orderIndex`。
+  * `db.version(3)`：**观测记录新增 `source` 字段**（`manual` 手工录入 / `inspection` 现场回传），
+    `.upgrade()` 把旧记录一律补齐为 `manual`，升级后旧数据照常打开。
 * **表结构**：
 
   | 表 | 主键 | 主要索引 |
   | --- | --- | --- |
   | `ponds` | id | code, seriesName, stage, status, createdAt, updatedAt |
   | `gates` | id | fromPondId, toPondId, state, openingPct |
-  | `observations` | id | pondId, date, **[pondId+date]**, densityGcm3, evapMm |
+  | `observations` | id | pondId, date, **[pondId+date]**, densityGcm3, evapMm, source |
   | `assays` | id | pondId, date, **[pondId+date]**, verdict, verdictManual |
   | `schedules` | id | pondId, planDate, state, orderIndex |
 
@@ -157,3 +160,4 @@ npm run preview      # 预览 dist 产物
   判定达标的池自动进入**出卤候选**；人工覆盖只改写判定标注，原始化验数值保持不变。
 * **闸门过流估算**：`1.7 × 过流面积 × √水头 × 开度`，用于开度调整后的下游进水量即时反馈；开度变化会同步推导闸门状态（关闭 / 半开 / 全开）。
 * **出卤回写**：走水状态推进到「已出卤」时，蒸发池阶段自动推进（钠盐→钾盐→锂盐），并把最新一次观测的密度回写为实际密度。
+* **现场回传对账**（`/writeback`）：巡检终端回传的记录**认现场** —— 水位、密度、闸门实测开度以回传为准（同池同日覆盖）；走水排程与目标密度归调度员，回传不触碰。闸门按「上游池号→下游池号」对认到已有串级，对不上先搁着（不新建闸门）；同池重复传只留一条（取最新日期）；坏条目跳过并写明原因，其余照常并入。观测记录用 `source` 字段区分 `manual` / `inspection`。
