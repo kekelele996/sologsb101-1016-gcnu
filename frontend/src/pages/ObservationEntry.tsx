@@ -365,6 +365,9 @@ export default function ObservationEntry() {
           按经验公式估算的蒸发量为 <span class="tabular-nums font-semibold">{previewEvap()} mm/d</span>；
           同一蒸发池与同一日期只会保留一条记录，重复保存将覆盖原记录。
         </p>
+        <p class="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-500">
+          字段分治：「现场回传对账」并入时只覆盖该日的水位与密度（认现场）；温度、风力与走水目标以本页/调度员录入为准，回传不会改动。
+        </p>
       </AppDialog>
 
       <AppDialog

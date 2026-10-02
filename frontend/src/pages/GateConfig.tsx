@@ -192,6 +192,11 @@ export default function GateConfig() {
           resultText={`命中 ${gatesOfSeries().length} / ${store.state.gates.length} 条`}
         />
 
+        <p class="mb-3 rounded-md border border-brine-100 bg-brine-50/70 px-3 py-2 text-xs leading-relaxed text-brine-800">
+          闸门走向（上下游）、口宽由调度员配置；班组现场回传的实测开度在「现场回传对账」页按上下游池对认到这里的既有闸门，
+          对不上先搁置，系统不会新建闸门。
+        </p>
+
         <Show when={store.state.ready && store.state.gates.length === 0}>
           <EmptyPanel
             title="还没有闸门串级"

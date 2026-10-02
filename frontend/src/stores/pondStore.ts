@@ -100,14 +100,15 @@ function createPondStore() {
       if (!subscribed) {
         subscribed = true;
         liveQuery(async () => {
-          const [ponds, gates, observations, assays, schedules] = await Promise.all([
+          const [ponds, gates, observations, assays, schedules, fieldReturns] = await Promise.all([
             db.ponds.toArray(),
             db.gates.toArray(),
             db.observations.toArray(),
             db.assays.toArray(),
             db.schedules.toArray(),
+            db.fieldReturns.toArray(),
           ]);
-          return { ponds, gates, observations, assays, schedules };
+          return { ponds, gates, observations, assays, schedules, fieldReturns };
         }).subscribe({
           next: ({ ponds, gates, observations, assays, schedules }) => {
             const sorted = [...ponds].sort(
@@ -127,6 +128,8 @@ function createPondStore() {
             if (state.currentSeries === null || !seriesList.includes(state.currentSeries)) {
               setCurrentSeries(seriesList.length > 0 ? seriesList[0] : null);
             }
+            // 现场回传并入/重对认后同步顶栏计数（回传表本页不展示明细）
+            void refreshCounts();
           },
           error: (err: unknown) => {
             setState({ loading: false, error: err instanceof Error ? err.message : '读取蒸发池数据失败' });
